@@ -1,0 +1,22 @@
+# Середовище
+venv/
+.venv/
+__pycache__/
+*.pyc
+
+# Конфігурація з credentials — використовуйте .env.example як шаблон
+.env
+*.env
+!*.env.example
+
+# Файли стану (генеруються під час роботи)
+state.json
+studies_to_delete.json
+
+# Claude Code
+CLAUDE.md
+
+# IDE
+.idea/
+.vscode/
+*.swp
