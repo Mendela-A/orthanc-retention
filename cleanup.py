@@ -132,7 +132,8 @@ def delete_studies(c, studies):
         )
         if resp.status_code == 200:
             freed_bytes += size
-            print(f"  ✓ {s['study_date']} | {s['patient_name']} ({format_size(size)})")
+            size_str = format_size(size) if size else "розмір невідомий"
+            print(f"  ✓ {s['study_date']} | {s['patient_name']} ({size_str})")
             deleted += 1
         elif resp.status_code == 404:
             print(f"  ~ {s['study_date']} | {s['patient_name']} (вже видалено)")
@@ -164,6 +165,8 @@ class GlpiSession:
         return self
 
     def __exit__(self, *_):
+        if not self.token:
+            return
         try:
             requests.get(
                 f"{self.c['glpi_url']}/apirest.php/killSession",
@@ -368,6 +371,9 @@ if __name__ == "__main__":
         print(f"Використання: python cleanup.py [{' | '.join(COMMANDS)}] [--env path/to/.env]")
         sys.exit(1)
 
+    if not os.path.exists(env_file):
+        print(f"[ERROR] Файл конфігурації не знайдено: {env_file}", file=sys.stderr)
+        sys.exit(1)
     load_dotenv(env_file, override=True)
     config = load_config()
     try:
