@@ -74,22 +74,22 @@ python cleanup.py delete
 
 Для кожного сервера — окремий `.env` файл:
 
+Конвенція імен: `server.<назва>.env`
+
 ```bash
-cp .env.example server1.env   # відредагувати ORTHANC_URL, credentials, STATE_FILE
-cp .env.example server2.env
-cp .env.example server3.env
+cp .env.example server.xr.env    # відредагувати ORTHANC_URL, credentials, STATE_FILE
+cp .env.example server.ct.env
+cp .env.example server.mri.env
 ```
 
 > **Важливо:** `STATE_FILE` та `STUDIES_FILE` мають бути унікальними для кожного сервера.
 
 ```bash
-python cleanup.py gather --env server1.env
-python cleanup.py gather --env server2.env
-python cleanup.py gather --env server3.env
+python cleanup.py gather --env server.xr.env
+python cleanup.py gather --env server.ct.env
 
-python cleanup.py check  --env server1.env
-python cleanup.py check  --env server2.env
-python cleanup.py check  --env server3.env
+python cleanup.py check  --env server.xr.env
+python cleanup.py check  --env server.ct.env
 ```
 
 ## Статуси тікетів GLPI

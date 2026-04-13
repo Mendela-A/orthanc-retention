@@ -29,11 +29,11 @@ fi
 
 # Перевірка наявності server*.env файлів
 shopt -s nullglob
-env_files=("$SCRIPT_DIR"/server*.env)
+env_files=("$SCRIPT_DIR"/server.*.env)
 shopt -u nullglob
 
 if [[ ${#env_files[@]} -eq 0 ]]; then
-    echo "[ERROR] Не знайдено жодного server*.env у $SCRIPT_DIR" >&2
+    echo "[ERROR] Не знайдено жодного server.*.env у $SCRIPT_DIR" >&2
     exit 1
 fi
 
