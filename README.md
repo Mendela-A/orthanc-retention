@@ -103,6 +103,56 @@ python cleanup.py check  --env server3.env
 | **5** | **Solved** | **запускає видалення** |
 | **6** | **Closed** | **запускає видалення** |
 
+## Автозапуск (cron)
+
+Скрипт `cron.sh` запускає вказану команду для всіх файлів `server*.env` по черзі та пише лог у `/var/log/orthanc-cleanup/`.
+
+### Налаштування
+
+```bash
+# 1. Переконайтесь що venv існує та залежності встановлено
+python -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+deactivate
+
+# 2. Зробіть скрипт виконуваним (якщо ще не)
+chmod +x cron.sh
+
+# 3. Створіть директорію для логів
+sudo mkdir -p /var/log/orthanc-cleanup
+sudo chown "$USER" /var/log/orthanc-cleanup
+
+# 4. Додайте задачі в crontab
+crontab -e
+```
+
+Вставте рядки:
+
+```cron
+# Orthanc cleanup — gather (1-го числа кожного місяця о 08:00)
+0 8 1 * * /home/andrii/projects/ansible_glpi/cron.sh gather
+
+# Orthanc cleanup — check (щодня о 22:00)
+0 22 * * * /home/andrii/projects/ansible_glpi/cron.sh check
+```
+
+### Логи
+
+```
+/var/log/orthanc-cleanup/server1_gather.log
+/var/log/orthanc-cleanup/server1_check.log
+/var/log/orthanc-cleanup/server2_gather.log
+...
+```
+
+### Ручний запуск для перевірки
+
+```bash
+./cron.sh gather
+./cron.sh check
+```
+
 ## Залежності
 
 - Python 3.8+
