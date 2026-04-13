@@ -60,6 +60,14 @@ def date_threshold(retention_years):
         return now.replace(year=now.year - retention_years, day=28)
 
 
+def format_size(size_bytes):
+    for unit in ("Б", "КБ", "МБ", "ГБ", "ТБ"):
+        if size_bytes < 1024:
+            return f"{size_bytes:.1f} {unit}"
+        size_bytes /= 1024
+    return f"{size_bytes:.1f} ПБ"
+
+
 def fetch_old_studies(c):
     threshold = date_threshold(c["retention_years"]).strftime("%Y%m%d")
     print(f"Шукаємо дослідження старші {c['retention_years']} років (до {threshold})...")
@@ -101,8 +109,21 @@ def fetch_old_studies(c):
 
 
 def delete_studies(c, studies):
-    deleted, skipped, failed = 0, 0, []
+    deleted, skipped, failed, freed_bytes = 0, 0, [], 0
     for s in studies:
+        size = 0
+        try:
+            r = requests.get(
+                f"{c['orthanc_url']}/studies/{s['orthanc_id']}/statistics",
+                auth=(c["orthanc_user"], c["orthanc_password"]),
+                verify=c["orthanc_verify_ssl"],
+                timeout=10,
+            )
+            if r.ok:
+                size = r.json().get("DiskSize", 0)
+        except Exception:
+            pass
+
         resp = requests.delete(
             f"{c['orthanc_url']}/studies/{s['orthanc_id']}",
             auth=(c["orthanc_user"], c["orthanc_password"]),
@@ -110,7 +131,8 @@ def delete_studies(c, studies):
             timeout=(10, None),  # з'єднання 10с, читання без ліміту — видалення 1M файлів може тривати годинами
         )
         if resp.status_code == 200:
-            print(f"  ✓ {s['study_date']} | {s['patient_name']}")
+            freed_bytes += size
+            print(f"  ✓ {s['study_date']} | {s['patient_name']} ({format_size(size)})")
             deleted += 1
         elif resp.status_code == 404:
             print(f"  ~ {s['study_date']} | {s['patient_name']} (вже видалено)")
@@ -118,7 +140,7 @@ def delete_studies(c, studies):
         else:
             print(f"  ✗ {s['study_date']} | {s['patient_name']} (HTTP {resp.status_code})", file=sys.stderr)
             failed.append(s)
-    return deleted, skipped, failed
+    return deleted, skipped, failed, freed_bytes
 
 
 # ── GLPI ──────────────────────────────────────────────────────────────────────
@@ -197,7 +219,7 @@ class GlpiSession:
         resp.raise_for_status()
         return resp.json()["status"]
 
-    def add_comment(self, ticket_id, deleted, skipped):
+    def add_comment(self, ticket_id, deleted, skipped, freed_bytes):
         resp = requests.post(
             f"{self.c['glpi_url']}/apirest.php/ITILFollowup",
             headers=self._headers(),
@@ -207,7 +229,8 @@ class GlpiSession:
                 "items_id":  ticket_id,
                 "content": (
                     f"Видалення виконано автоматично {datetime.now().strftime('%Y-%m-%d %H:%M')}. "
-                    f"Видалено: {deleted}, вже відсутніх: {skipped}."
+                    f"Видалено: {deleted}, вже відсутніх: {skipped}. "
+                    f"Звільнено: {format_size(freed_bytes)}."
                 ),
                 "is_private": 0,
             }},
@@ -282,12 +305,12 @@ def cmd_check(c):
             print(f"[ERROR] {c['studies_file']} пошкоджений.", file=sys.stderr)
             sys.exit(1)
         print(f"Тікет погоджено. Видаляємо {len(studies)} досліджень...")
-        deleted, skipped, failed = delete_studies(c, studies)
-        glpi.add_comment(ticket_id, deleted, skipped)
+        deleted, skipped, failed, freed = delete_studies(c, studies)
+        glpi.add_comment(ticket_id, deleted, skipped, freed)
 
     c["studies_file"].unlink()
     c["state_file"].unlink()
-    print(f"Готово. Видалено: {deleted}, пропущено: {skipped}.")
+    print(f"Готово. Видалено: {deleted}, пропущено: {skipped}. Звільнено: {format_size(freed)}.")
     if failed:
         print(f"[WARNING] Не вдалося видалити {len(failed)} досліджень:", file=sys.stderr)
         for s in failed:
@@ -313,11 +336,11 @@ def cmd_delete(c):
         print("Скасовано.")
         return
 
-    deleted, skipped, failed = delete_studies(c, studies)
+    deleted, skipped, failed, freed = delete_studies(c, studies)
     c["studies_file"].unlink()
     if c["state_file"].exists():
         c["state_file"].unlink()
-    print(f"Готово. Видалено: {deleted}, пропущено: {skipped}.")
+    print(f"Готово. Видалено: {deleted}, пропущено: {skipped}. Звільнено: {format_size(freed)}.")
     if failed:
         print(f"[WARNING] Не вдалося видалити {len(failed)} досліджень:", file=sys.stderr)
         for s in failed:
