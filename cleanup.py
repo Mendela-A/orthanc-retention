@@ -8,6 +8,8 @@ Orthanc PACS Cleanup — знаходить старі дослідження т
   delete  — ручне видалення з підтвердженням (без GLPI)
 """
 
+from __future__ import annotations
+
 import argparse
 import html
 import json
