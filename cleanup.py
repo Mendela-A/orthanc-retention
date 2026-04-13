@@ -51,6 +51,20 @@ def cfg(key: str, default: str | None = None) -> str:
     return val
 
 
+def _parse_verify(raw: str) -> bool | str:
+    """false → False, true → True, інше → шлях до CA-файлу."""
+    low = raw.strip().lower()
+    if low == "false":
+        return False
+    if low == "true":
+        return True
+    if not os.path.exists(raw):
+        log.error("VERIFY_SSL: CA-файл не знайдено: %s", raw)
+        sys.exit(1)
+    log.info("SSL: використовується CA-файл %s", raw)
+    return raw
+
+
 def _int_cfg(key: str, default: str) -> int:
     raw = cfg(key, default)
     try:
@@ -61,14 +75,14 @@ def _int_cfg(key: str, default: str) -> int:
 
 
 def load_config() -> dict:
-    orthanc_verify_ssl = cfg("ORTHANC_VERIFY_SSL", "false").lower() == "true"
-    glpi_verify_ssl    = cfg("GLPI_VERIFY_SSL",    "false").lower() == "true"
+    orthanc_verify_ssl = _parse_verify(cfg("ORTHANC_VERIFY_SSL", "false"))
+    glpi_verify_ssl    = _parse_verify(cfg("GLPI_VERIFY_SSL",    "false"))
 
-    if not orthanc_verify_ssl:
+    if orthanc_verify_ssl is False:
         log.warning("ORTHANC_VERIFY_SSL=false — SSL-перевірка вимкнена (небезпечно для production)")
-    if not glpi_verify_ssl:
+    if glpi_verify_ssl is False:
         log.warning("GLPI_VERIFY_SSL=false — SSL-перевірка вимкнена (небезпечно для production)")
-    if not orthanc_verify_ssl or not glpi_verify_ssl:
+    if orthanc_verify_ssl is False or glpi_verify_ssl is False:
         urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
     retention_years = _int_cfg("RETENTION_YEARS", "5")
