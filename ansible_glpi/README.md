@@ -47,10 +47,15 @@ cp .env.example .env
 | `STUDIES_FILE` | Шлях до JSON зі списком досліджень |
 | `STATE_FILE` | Шлях до файлу стану (ticket_id) |
 
-### Отримати GLPI токени
+### Отримати GLPI токени та ID
 
-1. **App-Token**: GLPI → Налаштування → Загальні → API → створити App-Token
-2. **User-Token**: профіль користувача → Налаштування → Згенерувати зовнішній токен API
+| Змінна | Де знайти |
+|---|---|
+| `GLPI_APP_TOKEN` | Налаштування → Загальні → API → створити App-Token |
+| `GLPI_USER_TOKEN` | Профіль користувача → Налаштування → Згенерувати зовнішній токен API |
+| `GLPI_CATEGORY_ID` | Служба підтримки → Категорії тікетів → відкрити категорію → ID в URL (`itilcategory.form.php?id=X`) |
+| `GLPI_ENTITY_ID` | Налаштування → Організації → відкрити організацію → ID в URL (`entity.form.php?id=X`); Root entity = `0` |
+| `GLPI_ASSIGN_USER_ID` | Адміністрування → Користувачі → відкрити користувача → ID в URL (`user.form.php?id=X`) |
 
 ## Команди
 

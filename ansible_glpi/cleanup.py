@@ -41,10 +41,11 @@ def load_config():
         "glpi_category_id":    int(cfg("GLPI_CATEGORY_ID", "1")),
         "glpi_entity_id":      int(cfg("GLPI_ENTITY_ID", "0")),
         "glpi_assign_user_id": int(cfg("GLPI_ASSIGN_USER_ID", "4")),
+        "glpi_verify_ssl":     cfg("GLPI_VERIFY_SSL", "false").lower() == "true",
         "studies_file":        Path(cfg("STUDIES_FILE", "/tmp/orthanc-cleanup/files/studies_to_delete.json")),
         "state_file":          Path(cfg("STATE_FILE", "/tmp/orthanc-cleanup/state.json")),
     }
-    if not c["orthanc_verify_ssl"]:
+    if not c["orthanc_verify_ssl"] or not c["glpi_verify_ssl"]:
         urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
     return c
 
@@ -134,6 +135,7 @@ class GlpiSession:
                 "App-Token": self.c["glpi_app_token"],
                 "Authorization": f"user_token {self.c['glpi_user_token']}",
             },
+            verify=self.c["glpi_verify_ssl"],
         )
         resp.raise_for_status()
         self.token = resp.json()["session_token"]
@@ -144,6 +146,7 @@ class GlpiSession:
             requests.get(
                 f"{self.c['glpi_url']}/apirest.php/killSession",
                 headers={"App-Token": self.c["glpi_app_token"], "Session-Token": self.token},
+                verify=self.c["glpi_verify_ssl"],
                 timeout=10,
             )
         except Exception:
@@ -172,6 +175,7 @@ class GlpiSession:
         resp = requests.post(
             f"{c['glpi_url']}/apirest.php/Ticket",
             headers=self._headers(),
+            verify=c["glpi_verify_ssl"],
             json={"input": {
                 "name": f"Видалення досліджень Orthanc >{c['retention_years']} років | {datetime.now().strftime('%Y-%m-%d')}",
                 "content": content,
@@ -188,6 +192,7 @@ class GlpiSession:
         resp = requests.get(
             f"{self.c['glpi_url']}/apirest.php/Ticket/{ticket_id}",
             headers=self._headers(),
+            verify=self.c["glpi_verify_ssl"],
         )
         resp.raise_for_status()
         return resp.json()["status"]
@@ -196,6 +201,7 @@ class GlpiSession:
         resp = requests.post(
             f"{self.c['glpi_url']}/apirest.php/ITILFollowup",
             headers=self._headers(),
+            verify=self.c["glpi_verify_ssl"],
             json={"input": {
                 "itemtype":  "Ticket",
                 "items_id":  ticket_id,
