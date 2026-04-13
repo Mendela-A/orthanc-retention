@@ -18,6 +18,7 @@ import requests_mock as req_mock_module
 from cleanup import (
     _atomic_write,
     _int_cfg,
+    _parse_verify,
     date_threshold,
     delete_studies,
     fetch_old_studies,
@@ -83,6 +84,34 @@ class TestDateThreshold:
             result = date_threshold(5)
             assert result.month == 2
             assert result.day in (27, 28)
+
+
+# ── _parse_verify ─────────────────────────────────────────────────────────────
+
+class TestParseVerify:
+    def test_false_string(self):
+        assert _parse_verify("false") is False
+
+    def test_false_uppercase(self):
+        assert _parse_verify("FALSE") is False
+
+    def test_true_string(self):
+        assert _parse_verify("true") is True
+
+    def test_true_uppercase(self):
+        assert _parse_verify("TRUE") is True
+
+    def test_ca_file_exists(self, tmp_path):
+        ca = tmp_path / "ca.crt"
+        ca.write_text("cert")
+        assert _parse_verify(str(ca)) == str(ca)
+
+    def test_ca_file_not_found_exits(self):
+        with pytest.raises(SystemExit):
+            _parse_verify("/nonexistent/ca.crt")
+
+    def test_whitespace_stripped(self):
+        assert _parse_verify("  false  ") is False
 
 
 # ── _int_cfg ───────────────────────────────────────────────────────────────────
