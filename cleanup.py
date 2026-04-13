@@ -190,6 +190,7 @@ class GlpiSession:
         )
         content = (
             f"<h3>Видалення досліджень старших {c['retention_years']} років з Orthanc PACS</h3>"
+            f"<p>Сервер: <strong>{c['server_name']}</strong></p>"
             f"<p>Дата формування: {datetime.now().strftime('%Y-%m-%d')}</p>"
             f"<p>Кількість досліджень: <strong>{len(studies)}</strong></p>"
             f"<table border='1' cellpadding='4' cellspacing='0'>"
@@ -202,7 +203,7 @@ class GlpiSession:
             headers=self._headers(),
             verify=c["glpi_verify_ssl"],
             json={"input": {
-                "name": f"Видалення досліджень Orthanc >{c['retention_years']} років | {datetime.now().strftime('%Y-%m-%d')}",
+                "name": f"Видалення досліджень Orthanc >{c['retention_years']} років | {c['server_name']} | {datetime.now().strftime('%Y-%m-%d')}",
                 "content": content,
                 "type": 2, "status": 1, "urgency": 2, "impact": 2, "priority": 2,
                 "itilcategories_id": c["glpi_category_id"],
@@ -376,6 +377,9 @@ if __name__ == "__main__":
         sys.exit(1)
     load_dotenv(env_file, override=True)
     config = load_config()
+    # витягуємо назву сервера з імені файлу: server.xr.env → xr
+    basename = os.path.splitext(os.path.basename(env_file))[0]
+    config["server_name"] = basename[len("server."):] if basename.startswith("server.") else basename
     try:
         COMMANDS[args[0]](config)
     except requests.HTTPError as e:
