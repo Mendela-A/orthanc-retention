@@ -188,7 +188,7 @@ def delete_studies(c: dict, studies: list[dict]) -> tuple[int, int, list[dict], 
                 timeout=10,
             )
             if r.ok:
-                size = r.json().get("DiskSize", 0)
+                size = int(r.json().get("DiskSize", 0))
         except Exception:
             pass
 

@@ -231,6 +231,14 @@ class TestDeleteStudies:
         assert failed == []
         assert freed == 1024 ** 2
 
+    def test_disk_size_as_string(self, requests_mock):
+        """Orthanc може повертати DiskSize як рядок — має конвертуватись в int."""
+        requests_mock.get(f"{self.BASE}/studies/abc-123/statistics", json={"DiskSize": "1048576"})
+        requests_mock.delete(f"{self.BASE}/studies/abc-123", status_code=200)
+        import requests as req
+        deleted, skipped, failed, freed = delete_studies(self._config(req.Session()), [self.STUDY])
+        assert freed == 1048576
+
     def test_already_deleted_404(self, requests_mock):
         requests_mock.get(f"{self.BASE}/studies/abc-123/statistics", status_code=404)
         requests_mock.delete(f"{self.BASE}/studies/abc-123", status_code=404)
