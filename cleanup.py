@@ -11,11 +11,13 @@ Orthanc PACS Cleanup — знаходить старі дослідження т
 from __future__ import annotations
 
 import argparse
+import fcntl
 import html
 import json
 import logging
 import os
 import sys
+from contextlib import contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -128,6 +130,37 @@ def _atomic_write(path: Path, data: str) -> None:
     tmp = path.with_suffix(".tmp")
     tmp.write_text(data, encoding="utf-8")
     os.replace(tmp, path)
+
+
+@contextmanager
+def _server_lock(state_file: Path):
+    """Exclusive lock для запобігання паралельному запуску для одного сервера.
+
+    Якщо інший процес вже тримає lock — логує і повертає None (not acquired).
+    Використання:
+        with _server_lock(c["state_file"]) as acquired:
+            if not acquired:
+                return
+    """
+    lock_path = state_file.with_suffix(".lock")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    fd = open(lock_path, "w")
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        fd.close()
+        log.info("Інший процес вже виконує операцію для цього сервера — пропускаємо.")
+        yield None
+        return
+    try:
+        yield True
+    finally:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        fd.close()
+        try:
+            lock_path.unlink()
+        except FileNotFoundError:
+            pass
 
 
 # ── Orthanc ───────────────────────────────────────────────────────────────────
@@ -386,49 +419,53 @@ def cmd_check(c: dict) -> None:
         log.info("Активного тікету немає — нічого робити.")
         return
 
-    try:
-        state = json.loads(c["state_file"].read_text())
-        ticket_id = state["ticket_id"]
-    except json.JSONDecodeError:
-        log.error("%s пошкоджений. Видаліть файл та запустіть gather знову.", c["state_file"])
-        sys.exit(1)
-    except KeyError:
-        log.error("%s не містить ticket_id. Видаліть файл та запустіть gather знову.", c["state_file"])
-        sys.exit(1)
-
-    log.info("Перевіряємо тікет #%d (створено %s)...", ticket_id, state["created_at"])
-
-    # Статуси GLPI: 1=New, 2=Processing(assigned), 3=Processing(planned),
-    #               4=Pending, 5=Solved, 6=Closed
-    with GlpiSession(c) as glpi:
-        status = glpi.get_ticket_status(ticket_id)
-        if status not in GLPI_APPROVED_STATUSES:
-            log.info("Тікет ще не погоджено (статус=%d). Очікуємо Solved(%d) або Closed(%d).",
-                     status, GLPI_STATUS_SOLVED, GLPI_STATUS_CLOSED)
+    with _server_lock(c["state_file"]) as acquired:
+        if not acquired:
             return
 
-        if not c["studies_file"].exists():
-            log.error("Тікет погоджено, але %s відсутній.", c["studies_file"])
-            sys.exit(1)
-
         try:
-            studies = json.loads(c["studies_file"].read_text())
+            state = json.loads(c["state_file"].read_text())
+            ticket_id = state["ticket_id"]
         except json.JSONDecodeError:
-            log.error("%s пошкоджений.", c["studies_file"])
+            log.error("%s пошкоджений. Видаліть файл та запустіть gather знову.", c["state_file"])
+            sys.exit(1)
+        except KeyError:
+            log.error("%s не містить ticket_id. Видаліть файл та запустіть gather знову.", c["state_file"])
             sys.exit(1)
 
-        log.info("Тікет погоджено. Видаляємо %d досліджень...", len(studies))
-        deleted, skipped, failed, freed = delete_studies(c, studies)
-        glpi.add_comment(ticket_id, deleted, skipped, freed)
+        log.info("Перевіряємо тікет #%d (створено %s)...", ticket_id, state["created_at"])
 
-    c["studies_file"].unlink()
-    c["state_file"].unlink()
-    log.info("Готово. Видалено: %d, пропущено: %d. Звільнено: %s.", deleted, skipped, format_size(freed))
+        # Статуси GLPI: 1=New, 2=Processing(assigned), 3=Processing(planned),
+        #               4=Pending, 5=Solved, 6=Closed
+        with GlpiSession(c) as glpi:
+            status = glpi.get_ticket_status(ticket_id)
+            if status not in GLPI_APPROVED_STATUSES:
+                log.info("Тікет ще не погоджено (статус=%d). Очікуємо Solved(%d) або Closed(%d).",
+                         status, GLPI_STATUS_SOLVED, GLPI_STATUS_CLOSED)
+                return
 
-    if failed:
-        failed_file = c["studies_file"].with_name("failed_studies.json")
-        _atomic_write(failed_file, json.dumps(failed, ensure_ascii=False, indent=2))
-        log.warning("Не вдалося видалити %d досліджень — збережено у %s", len(failed), failed_file)
+            if not c["studies_file"].exists():
+                log.error("Тікет погоджено, але %s відсутній.", c["studies_file"])
+                sys.exit(1)
+
+            try:
+                studies = json.loads(c["studies_file"].read_text())
+            except json.JSONDecodeError:
+                log.error("%s пошкоджений.", c["studies_file"])
+                sys.exit(1)
+
+            log.info("Тікет погоджено. Видаляємо %d досліджень...", len(studies))
+            deleted, skipped, failed, freed = delete_studies(c, studies)
+            glpi.add_comment(ticket_id, deleted, skipped, freed)
+
+        c["studies_file"].unlink()
+        c["state_file"].unlink()
+        log.info("Готово. Видалено: %d, пропущено: %d. Звільнено: %s.", deleted, skipped, format_size(freed))
+
+        if failed:
+            failed_file = c["studies_file"].with_name("failed_studies.json")
+            _atomic_write(failed_file, json.dumps(failed, ensure_ascii=False, indent=2))
+            log.warning("Не вдалося видалити %d досліджень — збережено у %s", len(failed), failed_file)
 
 
 def cmd_delete(c: dict) -> None:
@@ -436,35 +473,44 @@ def cmd_delete(c: dict) -> None:
         log.error("%s не знайдено. Спочатку запустіть gather.", c["studies_file"])
         sys.exit(1)
 
-    try:
-        studies = json.loads(c["studies_file"].read_text())
-    except json.JSONDecodeError:
-        log.error("%s пошкоджений.", c["studies_file"])
-        sys.exit(1)
+    with _server_lock(c["state_file"]) as acquired:
+        if not acquired:
+            return
 
-    log.info("Буде видалено %d досліджень:", len(studies))
-    for s in studies:
-        log.info("  %s | %s | %s", s["study_date"], s["patient_name"], s["orthanc_id"])
+        try:
+            studies = json.loads(c["studies_file"].read_text())
+        except json.JSONDecodeError:
+            log.error("%s пошкоджений.", c["studies_file"])
+            sys.exit(1)
 
-    if not sys.stdin.isatty():
-        log.error("Команда 'delete' потребує інтерактивного терміналу.")
-        sys.exit(1)
+        log.info("Буде видалено %d досліджень:", len(studies))
+        for s in studies:
+            log.info("  %s | %s | %s", s["study_date"], s["patient_name"], s["orthanc_id"])
 
-    try:
-        confirm = input("\nВидалити? Введіть 'yes': ")
-    except EOFError:
-        log.error("Скасовано (stdin закрито).")
-        sys.exit(1)
+        if not sys.stdin.isatty():
+            log.error("Команда 'delete' потребує інтерактивного терміналу.")
+            sys.exit(1)
 
-    if confirm.strip() != "yes":
-        log.info("Скасовано.")
-        return
+        try:
+            confirm = input("\nВидалити? Введіть 'yes': ")
+        except EOFError:
+            log.error("Скасовано (stdin закрито).")
+            sys.exit(1)
 
-    deleted, skipped, failed, freed = delete_studies(c, studies)
-    c["studies_file"].unlink()
-    if c["state_file"].exists():
-        c["state_file"].unlink()
-    log.info("Готово. Видалено: %d, пропущено: %d. Звільнено: %s.", deleted, skipped, format_size(freed))
+        if confirm.strip() != "yes":
+            log.info("Скасовано.")
+            return
+
+        deleted, skipped, failed, freed = delete_studies(c, studies)
+        c["studies_file"].unlink()
+        if c["state_file"].exists():
+            c["state_file"].unlink()
+        log.info("Готово. Видалено: %d, пропущено: %d. Звільнено: %s.", deleted, skipped, format_size(freed))
+
+        if failed:
+            failed_file = c["studies_file"].with_name("failed_studies.json")
+            _atomic_write(failed_file, json.dumps(failed, ensure_ascii=False, indent=2))
+            log.warning("Не вдалося видалити %d досліджень — збережено у %s", len(failed), failed_file)
 
     if failed:
         failed_file = c["studies_file"].with_name("failed_studies.json")

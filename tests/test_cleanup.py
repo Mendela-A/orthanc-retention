@@ -19,6 +19,7 @@ from cleanup import (
     _atomic_write,
     _int_cfg,
     _parse_verify,
+    _server_lock,
     date_threshold,
     delete_studies,
     fetch_old_studies,
@@ -481,3 +482,50 @@ class TestCmdCheck:
         failed_file = c["studies_file"].with_name("failed_studies.json")
         assert failed_file.exists()
         assert len(json.loads(failed_file.read_text())) == 1
+
+
+# ── _server_lock ───────────────────────────────────────────────────────────────
+
+class TestServerLock:
+    def test_acquires_lock_and_yields_true(self, tmp_path):
+        state = tmp_path / "state.json"
+        with _server_lock(state) as acquired:
+            assert acquired is True
+            assert state.with_suffix(".lock").exists()
+
+    def test_lock_file_removed_after_exit(self, tmp_path):
+        state = tmp_path / "state.json"
+        with _server_lock(state):
+            pass
+        assert not state.with_suffix(".lock").exists()
+
+    def test_second_process_yields_none(self, tmp_path):
+        import fcntl
+        state = tmp_path / "state.json"
+        lock_path = state.with_suffix(".lock")
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        # Симулюємо вже захоплений lock іншим процесом
+        with open(lock_path, "w") as fd:
+            fcntl.flock(fd, fcntl.LOCK_EX)
+            with _server_lock(state) as acquired:
+                assert acquired is None
+
+    def test_lock_file_created_in_parent_dir(self, tmp_path):
+        state = tmp_path / "subdir" / "state.json"
+        with _server_lock(state) as acquired:
+            assert acquired is True
+            assert state.with_suffix(".lock").exists()
+
+    def test_lock_released_on_exception(self, tmp_path):
+        """Lock знімається навіть якщо всередині with-блоку виняток."""
+        state = tmp_path / "state.json"
+        try:
+            with _server_lock(state):
+                raise RuntimeError("test error")
+        except RuntimeError:
+            pass
+        # Після винятку lock-файл має бути видалений
+        assert not state.with_suffix(".lock").exists()
+        # І повторне захоплення має спрацювати
+        with _server_lock(state) as acquired:
+            assert acquired is True
